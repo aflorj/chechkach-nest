@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import { Lobby, lobbySchema } from './entities/lobby.entity';
@@ -53,6 +54,37 @@ export class LobbiesService implements OnModuleInit {
       throw new BadRequestException(
         `Lobby with name "${lobbyName}" already exists.`,
       );
+    }
+  }
+
+  async findAll(): Promise<Lobby[]> {
+    const lobbies = (await this.lobbyRepository
+      .search()
+      .return.all()) as unknown as Lobby[];
+
+    return lobbies;
+  }
+
+  async findOne(name: string): Promise<Lobby> {
+    const matchingLobbies = await this.lobbyRepository
+      .search()
+      .where('name')
+      .equals(name)
+      .returnAll();
+
+    if (matchingLobbies.length) {
+      const lobby: Lobby = {
+        name: matchingLobbies[0].name as string,
+        status: matchingLobbies[0].status as string,
+        playersIds: (matchingLobbies[0].playersIds || []) as string[],
+        playersSocketIds: (matchingLobbies[0].playersSocketIds ||
+          []) as string[],
+        playersScore: (matchingLobbies[0].playersScore || []) as number[],
+      };
+
+      return lobby;
+    } else {
+      throw new NotFoundException(`Lobby with name "${name}" doesn\'t exist`);
     }
   }
 }

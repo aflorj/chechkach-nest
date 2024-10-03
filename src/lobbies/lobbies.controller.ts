@@ -28,15 +28,26 @@ export class LobbiesController {
     return this.lobbiesService.create(createLobbyDto);
   }
 
-  // @Get()
-  // findAll() {
-  //   return this.lobbiesService.findAll();
-  // }
+  @Get()
+  @ApiResponse({
+    status: 200,
+    description: 'List of lobbies',
+    type: Lobby,
+    isArray: true,
+  })
+  findAll() {
+    return this.lobbiesService.findAll();
+  }
 
-  // @Get(':id')
-  // findOne(@Param('id') id: string) {
-  //   return this.lobbiesService.findOne(+id);
-  // }
+  @Get(':name')
+  @ApiResponse({
+    status: 200,
+    description: 'Lobby details',
+    type: Lobby,
+  })
+  findOne(@Param('name') name: string) {
+    return this.lobbiesService.findOne(name);
+  }
 
   // @Patch(':id')
   // update(@Param('id') id: string, @Body() updateLobbyDto: UpdateLobbyDto) {
