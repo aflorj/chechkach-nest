@@ -21,40 +21,38 @@ export class LobbiesService implements OnModuleInit {
     await this.lobbyRepository.createIndex();
   }
 
-  create(createLobbyDto: CreateLobbyDto) {
+  async create(createLobbyDto: CreateLobbyDto): Promise<Lobby> {
     const lobbyName = createLobbyDto.name;
 
-    this.lobbyRepository
+    const existingLobbies = await this.lobbyRepository
       .search()
       .where('name')
       .equals(lobbyName)
-      .returnAll()
-      .then((response) => {
-        if (response?.length === 0) {
-          // lobby doesn't exist yet - create it
-          this.lobbyRepository
-            .save({
-              name: lobbyName,
-              status: 'open',
-              players: [],
-            })
-            .then((resp) => {
-              console.log('lobby creation response: ', resp);
-              return resp;
-            })
-            .catch((err) => {
-              console.log('lobby creation error: ', err);
-            });
-        } else {
-          // lobbby with this name already exists
-          console.log(`server ${lobbyName} ze obstaja`);
-          // res.status(400).json({
-          //   message: `Lobby with name "${lobbyName}" alerady exists.`,
-          // });
-        }
-      })
-      .catch((err) => {
-        console.log('error pri iskanju 222: ', err);
+      .returnAll();
+
+    if (existingLobbies.length === 0) {
+      const createdLobbyEntity = await this.lobbyRepository.save({
+        name: lobbyName,
+        status: 'open',
+        playersIds: [],
+        playersSocketIds: [],
+        playersScore: [],
       });
+
+      const createdLobby: Lobby = {
+        name: createdLobbyEntity.name as string,
+        status: createdLobbyEntity.status as string,
+        playersIds: (createdLobbyEntity.playersIds || []) as string[],
+        playersSocketIds: (createdLobbyEntity.playersSocketIds ||
+          []) as string[],
+        playersScore: (createdLobbyEntity.playersScore || []) as number[],
+      };
+
+      return createdLobby;
+    } else {
+      throw new BadRequestException(
+        `Lobby with name "${lobbyName}" already exists.`,
+      );
+    }
   }
 }

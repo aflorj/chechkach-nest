@@ -25,7 +25,7 @@ export class LobbiesController {
     type: Lobby,
   })
   create(@Body() createLobbyDto: CreateLobbyDto) {
-    this.lobbiesService.create(createLobbyDto);
+    return this.lobbiesService.create(createLobbyDto);
   }
 
   // @Get()
