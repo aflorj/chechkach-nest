@@ -1,10 +1,20 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Schema } from 'redis-om';
 
 export class Lobby {
+  @ApiProperty()
   name: string;
+
+  @ApiProperty()
   status: string;
+
+  @ApiProperty()
   playersIds: string[];
+
+  @ApiProperty()
   playersSocketIds: string[];
+
+  @ApiProperty()
   playersScore: number[];
 }
 

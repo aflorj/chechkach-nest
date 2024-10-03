@@ -10,15 +10,23 @@ import {
 import { LobbiesService } from './lobbies.service';
 import { CreateLobbyDto } from './dto/create-lobby.dto';
 import { UpdateLobbyDto } from './dto/update-lobby.dto';
+import { ApiCreatedResponse, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Lobby } from './entities/lobby.entity';
 
 @Controller('lobbies')
+@ApiTags('lobbies')
 export class LobbiesController {
   constructor(private readonly lobbiesService: LobbiesService) {}
 
-  // @Post()
-  // create(@Body() createLobbyDto: CreateLobbyDto) {
-  //   return this.lobbiesService.create(createLobbyDto);
-  // }
+  @Post()
+  @ApiCreatedResponse({
+    status: 201,
+    description: 'Lobby was successfully created.',
+    type: Lobby,
+  })
+  create(@Body() createLobbyDto: CreateLobbyDto) {
+    return this.lobbiesService.create(createLobbyDto);
+  }
 
   // @Get()
   // findAll() {

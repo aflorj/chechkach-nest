@@ -1,7 +1,7 @@
 export class CreateLobbyDto {
   /**
    * The name of the lobby
-   * @example 'Test lobby'
+   * @example 'Test123'
    */
   name: string;
 
