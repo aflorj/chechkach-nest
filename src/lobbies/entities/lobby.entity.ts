@@ -1,6 +1,23 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Schema } from 'redis-om';
 
+export class Player {
+  @ApiProperty()
+  playerId: string;
+
+  @ApiProperty()
+  socketId: string;
+
+  @ApiProperty()
+  connected: boolean;
+
+  @ApiProperty()
+  isOwner: boolean;
+
+  @ApiProperty()
+  score: number;
+}
+
 export class Lobby {
   @ApiProperty()
   name: string;
@@ -8,14 +25,8 @@ export class Lobby {
   @ApiProperty()
   status: string;
 
-  @ApiProperty()
-  playersIds: string[];
-
-  @ApiProperty()
-  playersSocketIds: string[];
-
-  @ApiProperty()
-  playersScore: number[];
+  @ApiProperty({ type: [Player] })
+  players: Player[];
 }
 
 export const lobbySchema = new Schema('lobby', {

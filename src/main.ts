@@ -8,6 +8,8 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableCors();
+  app.setGlobalPrefix('api');
 
   const options: SwaggerDocumentOptions = {
     operationIdFactory: (controllerKey: string, methodKey: string) => methodKey,
@@ -20,7 +22,8 @@ async function bootstrap() {
     .addTag('lobbies')
     .build();
   const document = SwaggerModule.createDocument(app, config, options);
-  SwaggerModule.setup('api', app, document);
+
+  SwaggerModule.setup('swagger', app, document);
 
   await app.listen(process.env.PORT);
 }

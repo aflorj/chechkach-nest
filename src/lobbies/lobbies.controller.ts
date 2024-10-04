@@ -9,9 +9,9 @@ import {
 } from '@nestjs/common';
 import { LobbiesService } from './lobbies.service';
 import { CreateLobbyDto } from './dto/create-lobby.dto';
-import { UpdateLobbyDto } from './dto/update-lobby.dto';
 import { ApiCreatedResponse, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Lobby } from './entities/lobby.entity';
+import { JoinLobbyDto } from './dto/join-lobby.dto';
 
 @Controller('lobbies')
 @ApiTags('lobbies')
@@ -39,14 +39,24 @@ export class LobbiesController {
     return this.lobbiesService.findAll();
   }
 
-  @Get(':name')
+  @Get(':lobbyName')
   @ApiResponse({
     status: 200,
     description: 'Lobby details',
     type: Lobby,
   })
-  findOne(@Param('name') name: string) {
-    return this.lobbiesService.findOne(name);
+  findOne(@Param('lobbyName') lobbyName: string) {
+    return this.lobbiesService.findOne(lobbyName);
+  }
+
+  @Post('join')
+  @ApiResponse({
+    status: 200,
+    description: 'Lobby details for a lobby to join',
+    type: Lobby,
+  })
+  join(@Body() joinLobbyDto: JoinLobbyDto) {
+    return this.lobbiesService.join(joinLobbyDto);
   }
 
   // @Patch(':id')

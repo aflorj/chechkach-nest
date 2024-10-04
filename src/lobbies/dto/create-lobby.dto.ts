@@ -3,7 +3,7 @@ export class CreateLobbyDto {
    * The name of the lobby
    * @example 'Test123'
    */
-  name: string;
+  lobbyName: string;
 
   /**
    * Password to enter the lobby
