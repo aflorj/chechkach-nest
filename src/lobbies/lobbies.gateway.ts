@@ -24,6 +24,7 @@ import { WsFullLineDto } from './dto/ws-full-line.dto';
 import { WsUndoDto } from './dto/ws-undo.dto';
 import { WsTriggerRoundEndByTimerDto } from './dto/ws-trigger-round-end-by-timer.dto';
 import { WsTriggerHintDto } from './dto/ws-trigger-hint.dto copy';
+import { PrismaService } from 'src/prisma.service';
 
 @WebSocketGateway({
   cors: {
@@ -36,7 +37,10 @@ export class LobbiesGateway
   @WebSocketServer()
   server: Server;
 
-  constructor(private readonly lobbiesService: LobbiesService) {}
+  constructor(
+    private readonly lobbiesService: LobbiesService,
+    private readonly prismaService: PrismaService,
+  ) {}
   handleConnection(client: Socket) {
     console.log(`Client connected: ${client.id}`);
   }
@@ -51,7 +55,6 @@ export class LobbiesGateway
       .returnFirst();
 
     let tempLobby = disconnectLobby;
-    console.log('celotn dl: ', disconnectLobby);
     // @ts-expect-error
     let playerIndex = tempLobby?.players?.findIndex(
       (player) => player?.socketId === client.id,
@@ -252,10 +255,22 @@ export class LobbiesGateway
         },
       });
 
+      // hardcoded to SL but should be a parameter based on the lobby settings
+      let wordsToPickFromQuery: { word: string }[] = await this.prismaService
+        .$queryRaw`
+        SELECT "word" FROM "Word"
+        WHERE "languageCode" = 'sl'
+        ORDER BY RANDOM()
+        LIMIT 3;
+      `;
+
+      let wordsToPickFrom = wordsToPickFromQuery.map(
+        (row: { word: string }) => row.word,
+      );
+
       setTimeout(() => {
         // TODO rework with words from db in different languages
         // let wordsToPickFrom = getRandomWords(3);
-        let wordsToPickFrom = ['foo', 'boo', 'hoo'];
 
         this.server.to(tempLobby.name).emit('lobbyStatusChange', {
           newStatus: 'pickingWord',
@@ -616,8 +631,19 @@ export class LobbiesGateway
         canvas: [],
       };
 
-      let wordsToPickFrom = ['foo', 'boo', 'hoo'];
-      // let wordsToPickFrom = getRandomWords(3);
+      // hardcoded to SL but should be a parameter based on the lobby settings
+      let wordsToPickFromQuery: { word: string }[] = await this.prismaService
+        .$queryRaw`
+          SELECT "word" FROM "Word"
+          WHERE "languageCode" = 'sl'
+          ORDER BY RANDOM()
+          LIMIT 3;
+        `;
+
+      let wordsToPickFrom = wordsToPickFromQuery.map(
+        (row: { word: string }) => row.word,
+      );
+
       let drawerSocketId =
         //@ts-expect-error
         tempLobby?.players?.[tempLobby?.players?.length - 1]?.socketId;
