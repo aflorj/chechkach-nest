@@ -10,9 +10,20 @@ import {
 import { Server, Socket } from 'socket.io';
 import { WsJoinLobbyDto } from './dto/ws-join-lobby.dto';
 import { LobbiesService } from './lobbies.service';
+import { EntityId } from 'redis-om';
 import { WsMessageDto } from './dto/ws-message.dto';
-import { checkForCloseGuess } from 'src/utils/close-guess.util';
+import { isCloseGuess } from 'src/utils/close-guess.util';
 import { determineNextDrawer } from 'src/utils/next-drawer.util';
+import { generateHints } from 'src/utils/generate-hints.util';
+import { WsStartGameDto } from './dto/ws-start-game.dto';
+import { ForbiddenException } from '@nestjs/common';
+import { WsWordPickDto } from './dto/ws-word-pick.dto';
+import { WsDrawDto } from './dto/ws-draw.dto';
+import { WsFillDto } from './dto/ws-fill.dto';
+import { WsFullLineDto } from './dto/ws-full-line.dto';
+import { WsUndoDto } from './dto/ws-undo.dto';
+import { WsTriggerRoundEndByTimerDto } from './dto/ws-trigger-round-end-by-timer.dto';
+import { WsTriggerHintDto } from './dto/ws-trigger-hint.dto copy';
 
 @WebSocketGateway({
   cors: {
@@ -26,15 +37,99 @@ export class LobbiesGateway
   server: Server;
 
   constructor(private readonly lobbiesService: LobbiesService) {}
-  // This method runs when a client connects to the server
   handleConnection(client: Socket) {
     console.log(`Client connected: ${client.id}`);
   }
 
-  // This method runs when a client disconnects from the server
-  handleDisconnect(client: Socket) {
+  handleDisconnect = async (client: Socket) => {
     console.log(`Client disconnected: ${client.id}`);
-  }
+
+    const disconnectLobby = await this.lobbiesService.repository
+      .search()
+      .where('playersSocketIds')
+      .contains(client.id)
+      .returnFirst();
+
+    let tempLobby = disconnectLobby;
+    console.log('celotn dl: ', disconnectLobby);
+    // @ts-expect-error
+    let playerIndex = tempLobby?.players?.findIndex(
+      (player) => player?.socketId === client.id,
+    );
+
+    // check if disconnecting player is owner and find a new owner
+    // and if there is more than 1 player find the index of the first connected non-owner player
+    if (
+      tempLobby?.players?.[playerIndex]?.isOwner &&
+      // @ts-expect-error
+      tempLobby?.players?.length > 1
+    ) {
+      // @ts-expect-error
+      let newOwnerIndex = tempLobby?.players?.findIndex(
+        (player) => player.connected && !player.isOwner,
+      );
+
+      if (newOwnerIndex !== -1) {
+        // there are still connected players that can become the owner
+        tempLobby.players[newOwnerIndex].isOwner = true;
+      }
+    }
+
+    // we also check if the person who disconnected is the person drawing - in this case we end (abort) the round
+    // TODO
+    const didDrawingUserDisconnect =
+      tempLobby?.players?.[playerIndex]?.playerid ===
+      // @ts-expect-error
+
+      tempLobby?.gameState?.drawingUser;
+
+    // depending on the game status remove or just change the connection status of the disconnecting player
+    if (
+      disconnectLobby?.status === 'open' ||
+      disconnectLobby?.status === 'gameOver'
+    ) {
+      // if the status of the lobby equals 'open' or 'gameOver' we remove the player on disconnect
+      // @ts-expect-error
+      tempLobby?.players?.splice?.(playerIndex, 1);
+    } else {
+      // if the game is active, we change their 'connected' to false
+      tempLobby.players[playerIndex].connected = false;
+    }
+
+    const saveDisconnect = await this.lobbiesService.repository.save(tempLobby);
+
+    // check how many CONNECTED players remain in the lobbby - if the lobby is empty after the disconnect, delete it
+    // @ts-expect-error
+    let throwawayPlayers = [...saveDisconnect?.players];
+    let stillConnected = throwawayPlayers?.filter?.(
+      (player) => player?.connected,
+    )?.length;
+
+    if (stillConnected === 0) {
+      // delete the lobbby as there is no more connected players in it
+      await this.lobbiesService.repository.remove(disconnectLobby[EntityId]);
+    } else if (stillConnected === 1) {
+      // TODO
+      // only one player remains - end the game because not enough active players left
+      // gameover status with extra message about there not beeing enought players to keep the game going
+
+      // TODO remove, temp for testing on local
+      this.prepareNextRound(tempLobby);
+      // temp for testing on local
+    } else {
+      // someone disconnected but the game goes on
+
+      // if the disconnected player was drawing, trigger prepareNextRound DOING
+      this.prepareNextRound(tempLobby);
+    }
+
+    // emit the new lobby state as a 'lobbyUpdate' to all players in the lobby
+    // @ts-expect-error
+    this.server.to(disconnectLobby?.name).emit('userStateChange', {
+      newUserState: saveDisconnect.players,
+    });
+    //
+  };
 
   prepareNextRound = async (tempLobby) => {
     // calculate points for winner and the person drawing
@@ -177,10 +272,10 @@ export class LobbiesGateway
 
   // Join
   @SubscribeMessage('join')
-  async hanleJoin(
+  async handleJoin(
     @MessageBody()
     message: WsJoinLobbyDto,
-    @ConnectedSocket() client: Socket, // The client that sent the message
+    @ConnectedSocket() client: Socket,
   ) {
     console.log(
       `Message received: ${message.lobbyName}, ${message.userName}, ${message.lastKnownSocketId} from client: ${client.id}`,
@@ -211,7 +306,6 @@ export class LobbiesGateway
         let lobbyToJoin = lobbies?.[0];
         let oldPlayers = lobbyToJoin?.players;
         lobbyToJoin.players = [
-          //@ts-expect-error
           ...oldPlayers,
           {
             playerId: message.userName,
@@ -336,7 +430,7 @@ export class LobbiesGateway
   async handleMessage(
     @MessageBody()
     message: WsMessageDto,
-    @ConnectedSocket() client: Socket, // The client that sent the message
+    @ConnectedSocket() client: Socket,
   ) {
     // the types of messages that we should handle:
     // 1. drawer - just broadcast the message to the lobby
@@ -353,7 +447,7 @@ export class LobbiesGateway
     // check that the message is not coming from the person drawing
     // TODO gamestate, drawing user should be part of the schema
     // @ts-expect-error
-    if (tempLobby.gameState.drawingUser !== message.userName) {
+    if (tempLobby?.gameState?.drawingUser !== message.userName) {
       // if the lobby's status is 'playing' we are considering this a guess and will compare it to the 'wordToGuess'
       if (tempLobby.status === 'playing') {
         if (
@@ -465,8 +559,8 @@ export class LobbiesGateway
               unmaskedWord: wordToGuess,
             });
             return;
-          } else if (checkForCloseGuess(guess, wordToGuess)) {
-            // TODO broadcast the 'close guess' message to the user only + broadcast as a normal message to all the users (so no return here)
+          } else if (isCloseGuess(guess, wordToGuess)) {
+            // TODO check if this is implemented on the FE
             this.server.to(client.id).emit('message', {
               message: { type: 'closeGuess' },
               serverMessage: true,
@@ -482,5 +576,253 @@ export class LobbiesGateway
       message: { type: message.messageType, content: message.messageContent },
       serverMessage: false,
     });
+  }
+
+  @SubscribeMessage('startGame')
+  async startGame(
+    @MessageBody()
+    message: WsStartGameDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    // find index of our player in the lobby
+    let tempLobby = ourLobby;
+    //@ts-expect-error
+    let playerIndex = tempLobby?.players?.findIndex(
+      (player) => player?.playerId === message.userName,
+    );
+
+    // check if the player even has the permission to start the game (isOwner === true)
+    if (tempLobby.players[playerIndex].isOwner) {
+      // they are the owner - start
+
+      // starting the game
+      tempLobby.status = 'pickingWord';
+      tempLobby.gameState = {
+        totalRounds: 3, // TODO lobby owner should be able to set the # of rounds
+        roundNo: 1,
+        drawingUser:
+          //@ts-expect-error
+          tempLobby?.players?.[tempLobby?.players?.length - 1]?.playerId,
+        drawState: [],
+        wordToGuess: null,
+        roundWinners: [],
+        roundEndTimeStamp: null,
+        canvas: [],
+      };
+
+      let wordsToPickFrom = ['foo', 'boo', 'hoo'];
+      // let wordsToPickFrom = getRandomWords(3);
+      let drawerSocketId =
+        //@ts-expect-error
+        tempLobby?.players?.[tempLobby?.players?.length - 1]?.socketId;
+
+      const savedLobby = await this.lobbiesService.repository.save(tempLobby);
+
+      this.server.to(message.lobbyName).emit('lobbyStatusChange', {
+        newStatus: 'pickingWord',
+        info: {
+          drawingUser:
+            //@ts-expect-error
+            tempLobby?.players?.[tempLobby?.players?.length - 1]?.playerId,
+        },
+      });
+
+      this.server.to(drawerSocketId).emit('pickAWord', {
+        arrayOfWordOptions: wordsToPickFrom,
+      });
+    } else {
+      throw new ForbiddenException('You are not the drawer');
+    }
+  }
+
+  @SubscribeMessage('wordPick')
+  async wordPick(
+    @MessageBody()
+    message: WsWordPickDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const epochNow = Math.floor(new Date().getTime() / 1000);
+
+    // ackn the choice
+    this.server
+      .to(client.id)
+      .emit('startDrawing', { wordToDraw: message.pickedWord });
+
+    // redis game state
+
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    // find index of our player in the lobby
+    let tempLobby = ourLobby;
+
+    tempLobby.status = 'playing';
+    //@ts-expect-error
+    tempLobby.gameState.wordToGuess = message.pickedWord;
+    //@ts-expect-error
+    tempLobby.gameState.roundEndTimeStamp = epochNow + 60;
+    //@ts-expect-error
+    tempLobby.gameState.hints = generateHints(message.pickedWord);
+
+    await this.lobbiesService.repository.save(tempLobby);
+    // notify the players but send the masked version of the word
+    // TODO just send the word length?
+    let maskedWord = message.pickedWord?.replace(/\S/g, '_');
+
+    this.server.to(message.lobbyName).emit('lobbyStatusChange', {
+      newStatus: 'playing',
+      info: {
+        maskedWord: maskedWord,
+        drawingUser: message.userName,
+        roundEndTimeStamp: epochNow + 60,
+      },
+    });
+  }
+
+  @SubscribeMessage('draw')
+  async draw(
+    @MessageBody()
+    message: WsDrawDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    // emit new paths as a 'newLine' to all players in the lobby except the person drawing
+    client.to(message.lobbyName).emit('newLine', {
+      newLine: message.newLine,
+    });
+  }
+
+  @SubscribeMessage('fill')
+  async fill(
+    @MessageBody()
+    message: WsFillDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    // emit to all the players in the lobby except the person drawing
+    client.to(message.lobbyName).emit('fill', {
+      fillInfo: message.fillInfo,
+    });
+
+    // store in Redis
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    let tempLobby = ourLobby;
+    //@ts-expect-error
+    tempLobby.gameState.canvas.push({
+      type: 'fill',
+      content: message.fillInfo,
+    });
+
+    await this.lobbiesService.repository.save(tempLobby);
+  }
+
+  @SubscribeMessage('fullLine')
+  async fullLine(
+    @MessageBody()
+    message: WsFullLineDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    // this is a 'full-line' coming in - it is an array of pixels coming in after the player relases the mouse button hold. It is used to update the state in redis which allows the 'undo' action and reconnects to work
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    let tempLobby = ourLobby;
+    //@ts-expect-error
+    tempLobby.gameState.canvas.push({
+      type: 'line',
+      content: message.fullLine,
+    });
+
+    await this.lobbiesService.repository.save(tempLobby);
+  }
+
+  @SubscribeMessage('undo')
+  async undo(
+    @MessageBody()
+    message: WsUndoDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    let tempLobby = ourLobby;
+
+    // @ts-expect-error
+    let preUndoCanvas = tempLobby.gameState.canvas;
+    preUndoCanvas.pop();
+    // @ts-expect-error
+    tempLobby.gameState.canvas = preUndoCanvas;
+
+    const savedLobby = await this.lobbiesService.repository.save(tempLobby);
+
+    // emit the full drawing to all the users to reset the canvas to full-1
+    this.server.to(message.lobbyName).emit('canvasAfterUndo', {
+      // @ts-expect-error
+      newCanvas: savedLobby.gameState.canvas,
+      // @ts-expect-error
+      isCanvasEmpty: savedLobby.gameState.canvas.length === 0 ? true : false,
+    });
+  }
+
+  @SubscribeMessage('triggerRoundEndByTimer')
+  async triggerRoundEndByTimer(
+    @MessageBody()
+    message: WsTriggerRoundEndByTimerDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    let tempLobby = ourLobby;
+
+    // make sure the player that triggered this event is the person drawing
+    // @ts-expect-error
+    if (tempLobby.gameState.drawingUser === message.userName) {
+      this.prepareNextRound(tempLobby);
+    }
+  }
+
+  @SubscribeMessage('triggerHint')
+  async triggerHint(
+    @MessageBody()
+    message: WsTriggerHintDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const ourLobby = await this.lobbiesService.repository
+      .search()
+      .where('name')
+      .equals(message.lobbyName)
+      .returnFirst();
+
+    // make sure the player that triggered this event is the person drawing
+    // @ts-expect-error
+    if (ourLobby.gameState.drawingUser === message.userName) {
+      // emit hint
+      client.to(message.lobbyName).emit('hint', {
+        // @ts-expect-error
+        hint: ourLobby?.gameState?.hints[message.index],
+      });
+    }
   }
 }
