@@ -43,15 +43,10 @@ export class LobbiesService implements OnModuleInit {
         name: lobbyName,
         status: 'open',
         players: [],
+        gameState: [],
       });
 
-      const createdLobby: Lobby = {
-        name: createdLobbyEntity.name as string,
-        status: createdLobbyEntity.status as string,
-        players: (createdLobbyEntity.players || []) as unknown as Player[],
-      };
-
-      return createdLobby;
+      return createdLobbyEntity as unknown as Lobby;
     } else {
       throw new BadRequestException(
         `Lobby with name "${lobbyName}" already exists.`,
@@ -75,13 +70,7 @@ export class LobbiesService implements OnModuleInit {
       .returnAll();
 
     if (matchingLobbies.length) {
-      const lobby: Lobby = {
-        name: matchingLobbies[0].name as string,
-        status: matchingLobbies[0].status as string,
-        players: (matchingLobbies[0].players || []) as unknown as Player[],
-      };
-
-      return lobby;
+      return matchingLobbies[0] as unknown as Lobby;
     } else {
       throw new NotFoundException(`Lobby "${lobbyName}" doesn't exist`);
     }
@@ -95,7 +84,7 @@ export class LobbiesService implements OnModuleInit {
     if (joinLobbyDto.lastKnownSocketId) {
       const lobbyWithLastKnown = await this.lobbyRepository
         .search()
-        .where('playersSocketIds')
+        .where('socketIds')
         .contains(lastKnownSocketId)
         .returnFirst();
 
@@ -107,13 +96,7 @@ export class LobbiesService implements OnModuleInit {
             `lobby ${lobbyName} exist and the user is reconnecting to it`,
           );
 
-          const lobby: Lobby = {
-            name: lobbyWithLastKnown.name as string,
-            status: lobbyWithLastKnown.status as string,
-            players: (lobbyWithLastKnown.players || []) as unknown as Player[],
-          };
-
-          return lobby;
+          return lobbyWithLastKnown as unknown as Lobby;
         } else {
           // not a reconnect but player is in another active game (only 1 allowed)
           // TODO handle this better
@@ -139,15 +122,7 @@ export class LobbiesService implements OnModuleInit {
         throw new ForbiddenException(`Lobby "${lobbyName}" is full`);
       } else {
         // can join
-        // TODO check FE - was lobbyinfo.lobby
-
-        const lobby: Lobby = {
-          name: lobbyToJoin.name as string,
-          status: lobbyToJoin.status as string,
-          players: (lobbyToJoin.players || []) as unknown as Player[],
-        };
-
-        return lobby;
+        return lobbyToJoin as unknown as Lobby;
       }
     } else {
       throw new NotFoundException(`Lobby "${lobbyName}" doesn't exist`);
