@@ -48,7 +48,6 @@ export class LobbiesGateway
 
   handleDisconnect = async (client: Socket) => {
     console.log(`Client disconnected: ${client.id}`);
-
     const disconnectLobby = (await this.lobbiesService.repository
       .search()
       .where('socketIds')
@@ -57,77 +56,82 @@ export class LobbiesGateway
 
     let tempLobby = disconnectLobby;
 
-    let playerIndex = tempLobby?.players?.findIndex(
-      (player) => player?.socketId === client.id,
-    );
+    // it is possible that client left without being in any lobby so only proceed with logic if that's not the case
 
-    // check if disconnecting player is owner and find a new owner
-    // and if there is more than 1 player find the index of the first connected non-owner player
-    if (
-      tempLobby?.players?.[playerIndex]?.isOwner &&
-      tempLobby?.players?.length > 1
-    ) {
-      let newOwnerIndex = tempLobby?.players?.findIndex(
-        (player) => player.connected && !player.isOwner,
+    if (tempLobby) {
+      let playerIndex = tempLobby?.players?.findIndex(
+        (player) => player?.socketId === client.id,
       );
 
-      if (newOwnerIndex !== -1) {
-        // there are still connected players that can become the owner
-        tempLobby.players[newOwnerIndex].isOwner = true;
+      // check if disconnecting player is owner and find a new owner
+      // and if there is more than 1 player find the index of the first connected non-owner player
+      if (
+        tempLobby?.players?.[playerIndex]?.isOwner &&
+        tempLobby?.players?.length > 1
+      ) {
+        let newOwnerIndex = tempLobby?.players?.findIndex(
+          (player) => player.connected && !player.isOwner,
+        );
+
+        if (newOwnerIndex !== -1) {
+          // there are still connected players that can become the owner
+          tempLobby.players[newOwnerIndex].isOwner = true;
+        }
       }
-    }
 
-    // we also check if the person who disconnected is the person drawing - in this case we end (abort) the round
-    // TODO
-    const didDrawingUserDisconnect =
-      tempLobby?.players?.[playerIndex]?.playerId ===
-      tempLobby?.gameState?.drawingUser;
-
-    // depending on the game status remove or just change the connection status of the disconnecting player
-    if (
-      disconnectLobby?.status === 'open' ||
-      disconnectLobby?.status === 'gameOver'
-    ) {
-      // if the status of the lobby equals 'open' or 'gameOver' we remove the player on disconnect
-      tempLobby?.players?.splice?.(playerIndex, 1);
-    } else {
-      // if the game is active, we change their 'connected' to false
-      tempLobby.players[playerIndex].connected = false;
-    }
-
-    // @ts-expect-error
-    const saveDisconnect = await this.lobbiesService.repository.save(tempLobby);
-
-    // check how many CONNECTED players remain in the lobbby - if the lobby is empty after the disconnect, delete it
-    // @ts-expect-error
-    let throwawayPlayers = [...saveDisconnect?.players];
-    let stillConnected = throwawayPlayers?.filter?.(
-      (player) => player?.connected,
-    )?.length;
-
-    if (stillConnected === 0) {
-      // delete the lobbby as there is no more connected players in it
-      await this.lobbiesService.repository.remove(disconnectLobby[EntityId]);
-    } else if (stillConnected === 1) {
+      // we also check if the person who disconnected is the person drawing - in this case we end (abort) the round
       // TODO
-      // only one player remains - end the game because not enough active players left
-      // gameover status with extra message about there not beeing enought players to keep the game going
+      const didDrawingUserDisconnect =
+        tempLobby?.players?.[playerIndex]?.playerId ===
+        tempLobby?.gameState?.drawingUser;
 
-      // TODO remove, temp for testing on local
-      this.prepareNextRound(tempLobby);
-      // temp for testing on local
-    } else {
-      // someone disconnected but the game goes on
+      // depending on the game status remove or just change the connection status of the disconnecting player
+      if (
+        disconnectLobby?.status === 'open' ||
+        disconnectLobby?.status === 'gameOver'
+      ) {
+        // if the status of the lobby equals 'open' or 'gameOver' we remove the player on disconnect
+        tempLobby?.players?.splice?.(playerIndex, 1);
+      } else {
+        // if the game is active, we change their 'connected' to false
+        tempLobby.players[playerIndex].connected = false;
+      }
 
-      // if the disconnected player was drawing, trigger prepareNextRound DOING
-      this.prepareNextRound(tempLobby);
+      const saveDisconnect =
+        //@ts-expect-error
+        await this.lobbiesService.repository.save(tempLobby);
+
+      // check how many CONNECTED players remain in the lobbby - if the lobby is empty after the disconnect, delete it
+      // @ts-expect-error
+      let throwawayPlayers = [...saveDisconnect?.players];
+      let stillConnected = throwawayPlayers?.filter?.(
+        (player) => player?.connected,
+      )?.length;
+      console.log('still connected: ', stillConnected);
+
+      if (stillConnected === 0) {
+        // delete the lobbby as there is no more connected players in it
+        await this.lobbiesService.repository.remove(disconnectLobby[EntityId]);
+      } else if (stillConnected === 1) {
+        console.log('samo se en je');
+        // TODO
+        // only one player remains - end the game because not enough active players left
+        // gameover status with extra message about there not beeing enought players to keep the game going
+        // TODO remove, temp for testing on local
+        this.prepareNextRound(tempLobby);
+        // temp for testing on local
+      } else {
+        // someone disconnected but the game goes on
+        // if the disconnected player was drawing, trigger prepareNextRound DOING
+        // this.prepareNextRound(tempLobby);
+      }
+
+      // emit the new lobby state as a 'lobbyUpdate' to all players in the lobby
+      this.server.to(disconnectLobby?.name).emit('userStateChange', {
+        newUserState: saveDisconnect.players,
+      });
+      //
     }
-
-    // emit the new lobby state as a 'lobbyUpdate' to all players in the lobby
-    this.server.to(disconnectLobby?.name).emit('userStateChange', {
-      newUserState: saveDisconnect.players,
-    });
-    //
   };
 
   prepareNextRound = async (tempLobby) => {
@@ -150,6 +154,7 @@ export class LobbiesGateway
     }));
 
     // find the drawer and award them points based the number of correct guesses
+    // TODO handle the case where the drawer disconnected
     let drawerIndexOnTheRoundScoreboard = roundScoreboard?.findIndex(
       (el) => el?.playerId === tempLobby?.gameState?.drawingUser,
     );
@@ -454,7 +459,6 @@ export class LobbiesGateway
     let tempLobby = ourLobby;
 
     // check that the message is not coming from the person drawing
-    // TODO gamestate, drawing user should be part of the schema
     if (tempLobby?.gameState?.drawingUser !== message.userName) {
       // if the lobby's status is 'playing' we are considering this a guess and will compare it to the 'wordToGuess'
       if (tempLobby.status === 'playing') {
