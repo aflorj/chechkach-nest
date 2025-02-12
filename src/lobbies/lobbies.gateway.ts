@@ -62,6 +62,7 @@ export class LobbiesGateway
       let playerIndex = tempLobby?.players?.findIndex(
         (player) => player?.socketId === client.id,
       );
+      let playerId = tempLobby?.players?.[playerIndex]?.playerId;
 
       // check if disconnecting player is owner and find a new owner
       // and if there is more than 1 player find the index of the first connected non-owner player
@@ -107,18 +108,16 @@ export class LobbiesGateway
       let stillConnected = throwawayPlayers?.filter?.(
         (player) => player?.connected,
       )?.length;
-      console.log('still connected: ', stillConnected);
 
       if (stillConnected === 0) {
         // delete the lobbby as there is no more connected players in it
         await this.lobbiesService.repository.remove(disconnectLobby[EntityId]);
       } else if (stillConnected === 1) {
-        console.log('samo se en je');
         // TODO
         // only one player remains - end the game because not enough active players left
         // gameover status with extra message about there not beeing enought players to keep the game going
         // TODO remove, temp for testing on local
-        this.prepareNextRound(tempLobby);
+        // this.prepareNextRound(tempLobby);
         // temp for testing on local
       } else {
         // someone disconnected but the game goes on
@@ -131,6 +130,15 @@ export class LobbiesGateway
         newUserState: saveDisconnect.players,
       });
       //
+
+      this.server.to(disconnectLobby?.name).emit('message', {
+        message: {
+          type: 'playerJoiningOrLeaving',
+          content: `Player ${playerId} left the lobby.`,
+        },
+        userName: 'server',
+        serverMessage: true,
+      });
     }
   };
 
