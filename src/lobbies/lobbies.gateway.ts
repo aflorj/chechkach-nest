@@ -27,10 +27,13 @@ import { WsTriggerHintDto } from './dto/ws-trigger-hint.dto copy';
 import { PrismaService } from 'src/prisma.service';
 import { Lobby } from './entities/lobby.entity';
 
+const socketPath = process.env.SOCKET_IO_PATH || '/socket.io';
+
 @WebSocketGateway({
   cors: {
     origin: '*',
   },
+  path: socketPath,
 })
 export class LobbiesGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -80,11 +83,13 @@ export class LobbiesGateway
         }
       }
 
-      // we also check if the person who disconnected is the person drawing - in this case we end (abort) the round
-      // TODO
       const didDrawingUserDisconnect =
         tempLobby?.players?.[playerIndex]?.playerId ===
         tempLobby?.gameState?.drawingUser;
+
+      if (didDrawingUserDisconnect) {
+        this.prepareNextRound(tempLobby);
+      }
 
       // depending on the game status remove or just change the connection status of the disconnecting player
       if (
